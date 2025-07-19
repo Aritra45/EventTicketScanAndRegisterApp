@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "160101428562",
+    "project_id": "utkarsheventapp-682ac",
+    "storage_bucket": "utkarsheventapp-682ac.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:160101428562:android:0fd323df99351cf8b7de8b",
+        "android_client_info": {
+          "package_name": "com.utkarsh.utkarsheventapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCq3Sq4i9prX08ArJBLmJXaU0XWPTKBahM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
