@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:utkarsheventapp/QRViewScanner.dart';
 
 class ScanTab extends StatefulWidget {
+  final String selectedEvent;
+
+  const ScanTab({Key? key, required this.selectedEvent}) : super(key: key);
+
   @override
   _ScanState createState() => _ScanState();
 }
@@ -34,6 +39,29 @@ class _ScanState extends State<ScanTab> {
 
         if (docSnapshot.exists) {
           final data = docSnapshot.data()!;
+          final userEvent = data['event'] ?? '';
+
+          if (userEvent != widget.selectedEvent) {
+            setState(() {
+              scannedUserName = 'User registered for a different event!';
+              isNotEntered = null;
+            });
+
+            // ScaffoldMessenger.of(context).showSnackBar(
+            //   SnackBar(
+            //     content: Text(
+            //         'This user is registered for "$userEvent", not for "${widget.selectedEvent}".'),
+            //   ),
+            // );
+            Fluttertoast.showToast(
+              msg:
+                  "This user is registered for '$userEvent', not for '${widget.selectedEvent}'",
+              backgroundColor: Colors.orange,
+              textColor: Colors.white,
+            );
+            return;
+          }
+
           setState(() {
             scannedUserName = data['name'] ?? 'Unknown';
             isNotEntered = data['isNotEntered'] ?? true;
@@ -81,14 +109,20 @@ class _ScanState extends State<ScanTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Center(
         child: isLoading
             ? CircularProgressIndicator()
             : scannedUserName.isEmpty
-                ? Text('Scan a QR to show user info')
+                ? Text('Scan a QR to show visitor info')
                 : Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Card(
+                      color: isNotEntered == null
+                          ? Colors.white
+                          : (isNotEntered!
+                              ? Colors.red[100]
+                              : Colors.green[100]),
                       elevation: 6,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),

@@ -8,26 +8,36 @@ import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:utkarsheventapp/notification_util.dart';
+import 'package:flutter/services.dart';
+
+const platform = MethodChannel('com.utkarsh.utkarsheventapp/whatsapp');
 
 class RegisterTab extends StatefulWidget {
+  final String selectedEvent;
+  final List<String> events;
+  const RegisterTab(
+      {Key? key, required this.selectedEvent, required this.events})
+      : super(key: key);
+
   @override
   State<RegisterTab> createState() => _RegisterTabState();
 }
 
 class _RegisterTabState extends State<RegisterTab> {
   final users = FirebaseFirestore.instance.collection('users');
-  bool _isSubmitting = false, _isQrLoading = false;
+  bool _isQrLoading = false;
   String _searchQuery = '';
   String _paymentFilter = 'All',
       _passTypeFilter = 'All',
       _enteredFilter = 'All';
-
   final _searchController = TextEditingController();
   int _filteredVisitorCount = 0;
 
@@ -44,11 +54,21 @@ class _RegisterTabState extends State<RegisterTab> {
     final status = (data['status'] ?? '').toString().toLowerCase();
     final gender = (data['gender'] ?? '').toString().toLowerCase();
     final entered = (data['isNotEntered'] == true ? 'no' : 'yes');
+    final event = (data['event'] ?? '').toString().toLowerCase();
 
     return (name.contains(q) || phone.contains(q) || status.contains(q)) &&
         (_paymentFilter == 'All' || status == _paymentFilter.toLowerCase()) &&
         (_passTypeFilter == 'All' || gender == _passTypeFilter.toLowerCase()) &&
-        (_enteredFilter == 'All' || entered == _enteredFilter.toLowerCase());
+        (_enteredFilter == 'All' || entered == _enteredFilter.toLowerCase()) &&
+        (widget.selectedEvent.isEmpty ||
+            event == widget.selectedEvent.toLowerCase());
+  }
+
+  void _updateFilteredVisitorCount(List<QueryDocumentSnapshot> docs) {
+    final filtered = docs
+        .where((doc) => _matchesFilters(doc.data() as Map<String, dynamic>))
+        .toList();
+    setState(() => _filteredVisitorCount = filtered.length);
   }
 
   Widget _buildDropdown(
@@ -68,6 +88,58 @@ class _RegisterTabState extends State<RegisterTab> {
                 .toList()),
       ),
     );
+  }
+
+  String toBold(String input) {
+    const boldOffset = 0x1D400 - 0x41; // Unicode bold offset for A-Z
+    return input.split('').map((char) {
+      if (char.contains(RegExp(r'[A-Z]'))) {
+        return String.fromCharCode(char.codeUnitAt(0) + boldOffset);
+      } else if (char.contains(RegExp(r'[a-z]'))) {
+        return String.fromCharCode(char.codeUnitAt(0) + (0x1D41A - 0x61));
+      } else if (char.contains(RegExp(r'[0-9]'))) {
+        return String.fromCharCode(char.codeUnitAt(0) + (0x1D7CE - 0x30));
+      } else {
+        return char;
+      }
+    }).join('');
+  }
+
+  Future<File?> _captureQrImage(GlobalKey key) async {
+    try {
+      RenderRepaintBoundary boundary =
+          key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ImageByteFormat.png);
+
+      if (byteData == null) return null;
+
+      final pngBytes = byteData.buffer.asUint8List();
+
+      final directory = await getExternalStorageDirectory(); // ✅ External
+      final filePath =
+          '${directory!.path}/qr_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File(filePath);
+      await file.writeAsBytes(pngBytes);
+      return file;
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Failed to capture image: $e');
+      return null;
+    }
+  }
+
+  Future<void> shareImageToWhatsApp(
+      String phoneNumber, File imageFile, String message) async {
+    try {
+      await platform.invokeMethod('shareToWhatsApp', {
+        'phone': phoneNumber,
+        'imagePath': imageFile.path,
+        'text': message,
+      });
+    } on PlatformException catch (e) {
+      Fluttertoast.showToast(msg: "WhatsApp share failed: ${e.message}");
+    }
   }
 
   Future<void> _showQrDialog(String docId) async {
@@ -101,42 +173,82 @@ class _RegisterTabState extends State<RegisterTab> {
                 children: [
                   Text(
                     'QR Code',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                   ),
+                  Spacer(),
                   if (!isLoading)
                     IconButton(
                       icon: Icon(Icons.share, color: Colors.deepPurple),
                       onPressed: () async {
-                        try {
-                          RenderRepaintBoundary boundary =
-                              _qrKey.currentContext!.findRenderObject()
-                                  as RenderRepaintBoundary;
+                        final file = await _captureQrImage(_qrKey);
 
-                          final image = await boundary.toImage(pixelRatio: 3.0);
-                          final byteData = await image.toByteData(
-                              format: ImageByteFormat.png);
-
-                          if (byteData == null)
-                            throw Exception("Image capture failed");
-
-                          final pngBytes = byteData.buffer.asUint8List();
-
-                          final tempDir = await getTemporaryDirectory();
-                          final filePath =
-                              '${tempDir.path}/qr_${DateTime.now().millisecondsSinceEpoch}.png';
-                          final file = await File(filePath).create();
-                          await file.writeAsBytes(pngBytes);
-
-                          await Share.shareXFiles([XFile(file.path)],
-                              text: "QR Ticket for $userName");
-                        } catch (e) {
-                          Fluttertoast.showToast(
-                            msg: "Failed to share QR: ${e.toString()}",
-                            backgroundColor: Colors.red,
-                            textColor: Colors.white,
+                        if (file != null) {
+                          await Share.shareXFiles(
+                            [XFile(file.path)],
+                            text:
+                                "QR Ticket for ${toBold(userName)}, Don't Share This QR With Anyone, Ticket ID ${toBold(docId)}",
                           );
                         }
                       },
+                    ),
+                  if (!isLoading)
+                    IconButton(
+                      icon:
+                          Icon(FontAwesomeIcons.whatsapp, color: Colors.green),
+                      onPressed: () async {
+                        final doc = await FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(docId)
+                            .get();
+
+                        final data = doc.data() as Map<String, dynamic>?;
+                        final phone = data?['phone']
+                                ?.toString()
+                                .replaceAll('+', '')
+                                .replaceAll(' ', '') ??
+                            '';
+
+                        if (phone.isEmpty) {
+                          Fluttertoast.showToast(msg: "Phone number not found");
+                          return;
+                        }
+
+                        final file = await _captureQrImage(
+                            _qrKey); // Your shared image function
+
+                        String text =
+                            "QR Ticket for ${toBold(userName)}, Don't Share This QR With Anyone, Ticket ID ${toBold(docId)}";
+
+                        if (file != null) {
+                          await shareImageToWhatsApp('+91${phone}', file, text);
+                        }
+                      },
+                    ),
+                  if (!isLoading)
+                    IconButton(
+                      onPressed: () async {
+                        final doc = await FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(docId)
+                            .get();
+
+                        final data = doc.data() as Map<String, dynamic>?;
+                        final Uri phoneUri = Uri(
+                          scheme: 'tel',
+                          path: data?['phone']?.toString() ?? '',
+                        );
+
+                        if (await canLaunchUrl(phoneUri)) {
+                          await launchUrl(phoneUri);
+                        } else {
+                          Fluttertoast.showToast(
+                              msg: "Cannot launch phone dialer");
+                        }
+                      },
+                      icon: Icon(
+                        Icons.phone,
+                        color: Colors.blue,
+                      ),
                     ),
                 ],
               ),
@@ -249,6 +361,7 @@ class _RegisterTabState extends State<RegisterTab> {
         TextEditingController(text: userData['tableCount']?.toString() ?? '');
     String _selectedStatus = userData['status'];
     String _selectedGender = userData['gender'];
+    String? _selectedEvent = userData['event'];
     bool validPhone = true, validTables = true;
 
     await showDialog(
@@ -290,6 +403,21 @@ class _RegisterTabState extends State<RegisterTab> {
                     ),
                     onChanged: (v) => setDialog(() =>
                         validPhone = RegExp(r'^\d{10}$').hasMatch(v.trim())),
+                  ),
+                  SizedBox(height: 12),
+
+                  // Event dropdown
+                  DropdownButtonFormField<String>(
+                    value: _selectedEvent,
+                    decoration: InputDecoration(
+                      labelText: 'Select Event',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: widget.events
+                        .map((event) =>
+                            DropdownMenuItem(value: event, child: Text(event)))
+                        .toList(),
+                    onChanged: (val) => setDialog(() => _selectedEvent = val),
                   ),
                   SizedBox(height: 12),
 
@@ -365,6 +493,7 @@ class _RegisterTabState extends State<RegisterTab> {
                     'phone': phone,
                     'status': _selectedStatus,
                     'gender': _selectedGender,
+                    'event': _selectedEvent,
                     'tableCount': _selectedGender == 'Tables'
                         ? int.parse(tables)
                         : FieldValue.delete(),
@@ -407,8 +536,12 @@ class _RegisterTabState extends State<RegisterTab> {
     final nameCtl = TextEditingController();
     final phoneCtl = TextEditingController();
     final tableCtl = TextEditingController();
-    String status = 'Paid', gender = 'Male';
-    bool validPhone = true, validTables = true;
+    bool validName = true;
+
+    String status = 'Paid';
+    String gender = 'Male';
+    String? selectedEvent = widget.selectedEvent; // <-- NEW
+    bool validPhone = true, validTables = true, validEvent = true; // <-- NEW
 
     await showDialog(
       barrierDismissible: false,
@@ -420,7 +553,7 @@ class _RegisterTabState extends State<RegisterTab> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            title: Text(
+            title: const Text(
               'Register User',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
@@ -428,15 +561,19 @@ class _RegisterTabState extends State<RegisterTab> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Name
+                  /// Name Field
                   TextField(
                     controller: nameCtl,
                     decoration: InputDecoration(
-                      labelText: 'Name',
-                      border: OutlineInputBorder(),
+                      labelText: 'Name *',
+                      border: const OutlineInputBorder(),
+                      errorText: validName ? null : 'Name is required',
                     ),
+                    onChanged: (value) {
+                      setDialog(() => validName = value.trim().isNotEmpty);
+                    },
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
                   // Phone
                   TextField(
@@ -445,17 +582,36 @@ class _RegisterTabState extends State<RegisterTab> {
                     decoration: InputDecoration(
                       labelText: 'Phone',
                       errorText: validPhone ? null : 'Invalid phone number',
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                     ),
                     onChanged: (v) => setDialog(() =>
                         validPhone = RegExp(r'^\d{10}$').hasMatch(v.trim())),
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
-                  // Status dropdown
+                  // Event Dropdown (NEW)
+                  DropdownButtonFormField<String>(
+                    value: selectedEvent,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Select Event *',
+                      border: const OutlineInputBorder(),
+                      errorText: validEvent ? null : 'Event is required',
+                    ),
+                    items: widget.events
+                        .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                        .toList(),
+                    onChanged: (val) => setDialog(() {
+                      selectedEvent = val;
+                      validEvent = true;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Payment Status Dropdown
                   DropdownButtonFormField<String>(
                     value: status,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Payment Status',
                       border: OutlineInputBorder(),
                     ),
@@ -464,12 +620,12 @@ class _RegisterTabState extends State<RegisterTab> {
                         .toList(),
                     onChanged: (val) => setDialog(() => status = val!),
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
-                  // Gender dropdown
+                  // Gender / Pass Type Dropdown
                   DropdownButtonFormField<String>(
                     value: gender,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Pass Type',
                       border: OutlineInputBorder(),
                     ),
@@ -479,21 +635,21 @@ class _RegisterTabState extends State<RegisterTab> {
                     onChanged: (val) => setDialog(() => gender = val!),
                   ),
 
-                  // Table count (only if 'Tables' selected)
+                  // Table Count (if Tables selected)
                   if (gender == 'Tables') ...[
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: tableCtl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: 'No. of People',
                         errorText: validTables ? null : 'Invalid number',
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
                       ),
                       onChanged: (v) => setDialog(
                           () => validTables = int.tryParse(v.trim()) != null),
                     ),
-                  ]
+                  ],
                 ],
               ),
             ),
@@ -515,13 +671,20 @@ class _RegisterTabState extends State<RegisterTab> {
                   final phone = phoneCtl.text.trim();
                   final tables = tableCtl.text.trim();
 
+                  // Validate event selection
+                  if (selectedEvent == null) {
+                    setDialog(() => validEvent = false);
+                    return;
+                  }
+
                   if (name.isEmpty ||
                       !validPhone ||
                       (gender == 'Tables' && !validTables)) return;
 
                   final entry = {
-                    'name': name,
+                    'name': name.toUpperCase(),
                     'phone': phone,
+                    'event': selectedEvent,
                     'status': status,
                     'gender': gender,
                     if (gender == 'Tables') 'tableCount': tables,
@@ -532,7 +695,7 @@ class _RegisterTabState extends State<RegisterTab> {
                   await users.add(entry);
                   Navigator.pop(context);
                 },
-                child: Text('Submit'),
+                child: const Text('Submit'),
               ),
             ],
           );
@@ -541,7 +704,8 @@ class _RegisterTabState extends State<RegisterTab> {
     );
   }
 
-  Future<void> downloadUserListAsExcel(BuildContext context) async {
+  Future<void> downloadUserListAsExcel(
+      BuildContext context, String selectedEvent) async {
     try {
       // 📱 Request permission
       if (Platform.isAndroid &&
@@ -558,12 +722,13 @@ class _RegisterTabState extends State<RegisterTab> {
       // 🔄 Fetch data
       final snapshot = await FirebaseFirestore.instance
           .collection('users')
+          .where('event', isEqualTo: selectedEvent)
           .orderBy('timestamp', descending: true)
           .get();
 
       if (snapshot.docs.isEmpty) {
         Fluttertoast.showToast(
-          msg: "No users to export.",
+          msg: "No users found for '$selectedEvent'.",
           backgroundColor: Colors.orange,
           textColor: Colors.white,
         );
@@ -582,6 +747,7 @@ class _RegisterTabState extends State<RegisterTab> {
         TextCellValue('Status'),
         TextCellValue('Pass Type'),
         TextCellValue('Table Count'),
+        TextCellValue('Event'),
       ]);
 
       // ➕ Data rows
@@ -593,6 +759,7 @@ class _RegisterTabState extends State<RegisterTab> {
           TextCellValue(data['status']?.toString() ?? '-'),
           TextCellValue(data['gender']?.toString() ?? '-'),
           TextCellValue(data['tableCount']?.toString() ?? '-'),
+          TextCellValue(data['event']?.toString() ?? '-'),
         ]);
       }
 
@@ -604,11 +771,11 @@ class _RegisterTabState extends State<RegisterTab> {
       final Uint8List bytes = Uint8List.fromList(fileBytes);
       final dir = Directory('/storage/emulated/0/Download');
       final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      final filePath = "${dir.path}/UserList_$stamp.xlsx";
+      final filePath = "${dir.path}/UserList_${selectedEvent}_$stamp.xlsx";
 
       final file = File(filePath);
       await file.writeAsBytes(bytes, flush: true);
-      await showDownloadNotification(filePath, "Excel Sheet of Users");
+      await showDownloadNotification(filePath, "Excel Sheet of $selectedEvent");
       Fluttertoast.showToast(
         msg: "Excel saved to Downloads",
         backgroundColor: Colors.green,
@@ -624,17 +791,18 @@ class _RegisterTabState extends State<RegisterTab> {
     }
   }
 
-  void _updateFilteredVisitorCount(List<QueryDocumentSnapshot> docs) {
-    final filtered = docs
-        .where((doc) => _matchesFilters(doc.data() as Map<String, dynamic>))
-        .toList();
-    setState(() => _filteredVisitorCount = filtered.length);
-  }
+// void _updateFilteredVisitorCount(List<QueryDocumentSnapshot> docs) {
+//   final filtered = docs
+//       .where((doc) =>
+//           _matchesFilters(doc.data() as Map<String, dynamic>))
+//       .toList();
+//   setState(() => _filteredVisitorCount = filtered.length);
+// }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: Colors.white,
       body: LayoutBuilder(
         builder: (ctx, constraints) => Center(
           child: ConstrainedBox(
@@ -714,21 +882,6 @@ class _RegisterTabState extends State<RegisterTab> {
                           ),
                         ],
                       ),
-
-                      // // ⬇️ Download Button
-                      // Row(
-                      //   children: [
-                      //     ElevatedButton.icon(
-                      //       onPressed: () => downloadUserListAsExcel(context),
-                      //       icon: Icon(Icons.download),
-                      //       label: Text("Download Excel"),
-                      //       style: ElevatedButton.styleFrom(
-                      //         backgroundColor: Colors.deepPurple,
-                      //         foregroundColor: Colors.white,
-                      //       ),
-                      //     ),
-                      //   ],
-                      // ),
                     ],
                   ),
                   SizedBox(height: 12),
@@ -750,6 +903,11 @@ class _RegisterTabState extends State<RegisterTab> {
                                 d.data() as Map<String, dynamic>))
                             .toList();
 
+                        // ✅ FIXED: Post-frame setState to avoid build-time errors
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _updateFilteredVisitorCount(snap.data!.docs);
+                        });
+
                         final visitorCount = docs.length;
 
                         return Column(
@@ -761,8 +919,8 @@ class _RegisterTabState extends State<RegisterTab> {
                                 children: [
                                   Expanded(
                                     child: ElevatedButton.icon(
-                                      onPressed: () =>
-                                          downloadUserListAsExcel(context),
+                                      onPressed: () => downloadUserListAsExcel(
+                                          context, widget.selectedEvent),
                                       icon: Icon(Icons.download),
                                       label: Text("Download Excel"),
                                       style: ElevatedButton.styleFrom(
@@ -771,9 +929,7 @@ class _RegisterTabState extends State<RegisterTab> {
                                       ),
                                     ),
                                   ),
-                                  SizedBox(
-                                    width: 20,
-                                  ),
+                                  SizedBox(width: 20),
                                   AutoSizeText(
                                     maxLines: 2,
                                     "Total Count: $visitorCount",
@@ -789,7 +945,7 @@ class _RegisterTabState extends State<RegisterTab> {
                             Expanded(
                               child: docs.isEmpty
                                   ? Center(
-                                      child: Text('No matching users found'))
+                                      child: Text('No matching visitors found'))
                                   : ListView.builder(
                                       padding: EdgeInsets.only(bottom: 80),
                                       itemCount: docs.length,
@@ -822,25 +978,29 @@ class _RegisterTabState extends State<RegisterTab> {
                                                   )
                                                 : IconButton(
                                                     icon: Icon(
-                                                      Icons.visibility,
+                                                      Icons.qr_code,
                                                       color: Colors.deepPurple,
                                                     ),
                                                     onPressed: () =>
                                                         _showQrDialog(doc.id),
                                                   ),
-                                            title:
-                                                Text(data['name'] ?? 'No Name'),
+                                            title: Text(
+                                              data['name'] ?? 'No Name',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold),
+                                            ),
                                             subtitle: Column(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                Text('Phone: ${data['phone']}'),
                                                 Text(
-                                                    'Status: ${data['status']}'),
+                                                    'Phone: ${data['phone'] ?? ''}'),
+                                                Text(
+                                                    'Status: ${data['status'] ?? ''}'),
                                                 Text(
                                                     'Entered: ${data['isNotEntered'] == true ? 'No' : 'Yes'}'),
                                                 Text(
-                                                    'Pass Type: ${data['gender']}'),
+                                                    'Pass Type: ${data['gender'] ?? ''}'),
                                                 if (data['tableCount'] != null)
                                                   Text(
                                                       'No of People: ${data['tableCount']}'),

@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:utkarsheventapp/Register.dart';
 import 'package:utkarsheventapp/Scan.dart';
+import 'package:utkarsheventapp/custom_appbar.dart';
+import 'package:utkarsheventapp/custom_drawer.dart';
 import 'package:utkarsheventapp/notification_util.dart';
 import 'package:utkarsheventapp/requestNotificationPermission.dart';
 
@@ -20,6 +23,7 @@ void main() async {
       ),
     );
   }
+
   await requestNotificationPermission();
   await initNotification();
   runApp(MyApp());
@@ -43,41 +47,85 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+  TabController? _tabController;
+  List<String> listevents = [];
+  String _selectedEvent = '';
+  late final StreamSubscription _eventSubscription;
 
   @override
   void initState() {
-    _tabController = TabController(length: 2, vsync: this);
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _listenToEvents();
+  }
+
+  void _listenToEvents() {
+    _eventSubscription = FirebaseFirestore.instance
+        .collection('events')
+        .snapshots()
+        .listen((snapshot) {
+      final List<String> updatedEvents =
+          snapshot.docs.map((doc) => doc['name'].toString()).toList();
+
+      setState(() {
+        listevents = updatedEvents;
+        if (listevents.isEmpty) {
+          _selectedEvent = '';
+        } else if (!listevents.contains(_selectedEvent)) {
+          _selectedEvent = listevents.first;
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController?.dispose();
+    _eventSubscription.cancel(); // 🧹 Cleanup
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.deepPurple,
-        title: Text(
-          'Utkarsh BSDK',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        endDrawer: CustomDrawer(
+          tabController: _tabController!,
+          selectedEvent: _selectedEvent,
+          onSelectionChanged: (city, event) {
+            setState(() => _selectedEvent = event);
+          },
+          events: listevents,
         ),
-        bottom: TabBar(
-          labelColor: Colors.white,
-          indicatorColor: Colors.amber,
-          unselectedLabelColor: Colors.white,
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Scan'),
-            Tab(text: 'Register'),
-          ],
+        appBar: CustomAppBar(
+          tabController: _tabController!,
+          isBackButtonShow: false,
+          title: "Influencer Lab Event",
+          subTitle: _selectedEvent,
+          isShowNotification: false,
+          isShowMenu: true,
+          icon: Icons.add,
+          isShowLogo: true,
+          isReturnValue: false,
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          ScanTab(),
-          RegisterTab(),
-        ],
-      ),
-    );
+        body: (_tabController == null)
+            ? const Center(child: CircularProgressIndicator())
+            : (listevents.isEmpty)
+                ? const Center(
+                    child: Text(
+                      'No Events Created.\nPlease add an event from the + icon.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16, color: Colors.grey),
+                    ),
+                  )
+                : TabBarView(
+                    controller: _tabController!,
+                    children: [
+                      ScanTab(selectedEvent: _selectedEvent),
+                      RegisterTab(
+                        selectedEvent: _selectedEvent,
+                        events: listevents,
+                      ),
+                    ],
+                  ));
   }
 }

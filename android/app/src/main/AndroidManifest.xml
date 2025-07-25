@@ -12,10 +12,19 @@
 
     <application
         android:name="${applicationName}"
-        android:label="utkarsheventapp"
-        android:icon="@mipmap/ic_launcher"
+        android:label="InfluEvent"
+        android:icon="@mipmap/logo"
         android:requestLegacyExternalStorage="true"
         tools:targetApi="31">
+<provider
+    android:name="androidx.core.content.FileProvider"
+    android:authorities="com.utkarsh.utkarsheventapp.fileprovider"
+    android:exported="false"
+    android:grantUriPermissions="true">
+    <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/file_paths" />
+</provider>
 
         <activity
             android:name=".MainActivity"
