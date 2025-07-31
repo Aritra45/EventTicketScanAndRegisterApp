@@ -15,12 +15,12 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                if (call.method == "shareToWhatsApp") {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "shareToWhatsApp" -> {
                     val phone = call.argument<String>("phone")
                     val imagePath = call.argument<String>("imagePath")
-                    val text = call.argument<String>("text") // ✅ new
+                    val text = call.argument<String>("text") ?: ""
 
                     try {
                         if (phone == null || imagePath == null) {
@@ -41,7 +41,7 @@ class MainActivity : FlutterActivity() {
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "image/*"
                             putExtra(Intent.EXTRA_STREAM, uri)
-                            putExtra(Intent.EXTRA_TEXT, text) // ✅ add message text
+                            putExtra(Intent.EXTRA_TEXT, text)
                             putExtra("jid", jid)
                             setPackage("com.whatsapp")
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -52,9 +52,33 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         result.error("WHATSAPP_SHARE_ERROR", e.message, null)
                     }
-                } else {
-                    result.notImplemented()
                 }
+
+                "openWhatsAppChat" -> {
+                    val phone = call.argument<String>("phone")
+                    val text = call.argument<String>("text") ?: ""
+
+                    try {
+                        if (phone == null) {
+                            result.error("INVALID_ARGUMENT", "Phone is null", null)
+                            return@setMethodCallHandler
+                        }
+
+                        val sanitizedPhone = phone.replace("+", "").replace(" ", "")
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            data = Uri.parse("https://wa.me/$sanitizedPhone?text=${Uri.encode(text)}")
+                            setPackage("com.whatsapp")
+                        }
+
+                        startActivity(intent)
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("WHATSAPP_OPEN_CHAT_ERROR", e.message, null)
+                    }
+                }
+
+                else -> result.notImplemented()
             }
+        }
     }
 }

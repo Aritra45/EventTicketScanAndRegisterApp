@@ -15,6 +15,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:utkarsheventapp/QRViewScanner.dart';
 import 'package:utkarsheventapp/notification_util.dart';
 import 'package:flutter/services.dart';
 
@@ -55,8 +56,12 @@ class _RegisterTabState extends State<RegisterTab> {
     final gender = (data['gender'] ?? '').toString().toLowerCase();
     final entered = (data['isNotEntered'] == true ? 'no' : 'yes');
     final event = (data['event'] ?? '').toString().toLowerCase();
+    final docId = (data['id'] ?? '').toString().toLowerCase(); // 👈 Add this
 
-    return (name.contains(q) || phone.contains(q) || status.contains(q)) &&
+    return (name.contains(q) ||
+            phone.contains(q) ||
+            status.contains(q) ||
+            docId.contains(q)) && // 👈 Include this in the match
         (_paymentFilter == 'All' || status == _paymentFilter.toLowerCase()) &&
         (_passTypeFilter == 'All' || gender == _passTypeFilter.toLowerCase()) &&
         (_enteredFilter == 'All' || entered == _enteredFilter.toLowerCase()) &&
@@ -213,14 +218,53 @@ class _RegisterTabState extends State<RegisterTab> {
                           return;
                         }
 
-                        final file = await _captureQrImage(
-                            _qrKey); // Your shared image function
+                        final file = await _captureQrImage(_qrKey);
+                        final text =
+                            "Hi 👋, this is your ticket for the event.\nQR Ticket for ${toBold(userName)}\nTicket ID: ${toBold(docId)}\nDon't share this with anyone.";
 
-                        String text =
-                            "QR Ticket for ${toBold(userName)}, Don't Share This QR With Anyone, Ticket ID ${toBold(docId)}";
+                        final methodChannel = MethodChannel(
+                            'com.utkarsh.utkarsheventapp/whatsapp');
 
-                        if (file != null) {
-                          await shareImageToWhatsApp('+91${phone}', file, text);
+                        // Step 1: Open WhatsApp chat (text-only)
+                        await methodChannel.invokeMethod('openWhatsAppChat', {
+                          'phone': '+91$phone',
+                          'text': text,
+                        });
+
+                        // Step 2: Ask user if we should proceed with image
+                        await Future.delayed(
+                            Duration(seconds: 2)); // wait for WhatsApp to open
+                        final sendImage = await showDialog<bool>(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: Text("Send QR Image?"),
+                            content: Text(
+                                "Did you send a message to the person?\nIf yes, we can now send the QR image."),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: Text("Cancel"),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: Text("Send Image"),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (sendImage == true && file != null) {
+                          try {
+                            await methodChannel
+                                .invokeMethod('shareToWhatsApp', {
+                              'phone': '+91$phone',
+                              'imagePath': file.path,
+                              'text': text,
+                            });
+                          } catch (e) {
+                            Fluttertoast.showToast(
+                                msg: "Failed to send image: $e");
+                          }
                         }
                       },
                     ),
@@ -359,10 +403,12 @@ class _RegisterTabState extends State<RegisterTab> {
     final phoneCtl = TextEditingController(text: userData['phone']);
     final tableCtl =
         TextEditingController(text: userData['tableCount']?.toString() ?? '');
+    final amountCtl =
+        TextEditingController(text: userData['amount']?.toString() ?? '');
     String _selectedStatus = userData['status'];
     String _selectedGender = userData['gender'];
     String? _selectedEvent = userData['event'];
-    bool validPhone = true, validTables = true;
+    bool validPhone = true, validTables = true, validAmount = true;
 
     await showDialog(
       context: context,
@@ -433,6 +479,20 @@ class _RegisterTabState extends State<RegisterTab> {
                         .toList(),
                     onChanged: (val) => setDialog(() => _selectedStatus = val!),
                   ),
+                  if (_selectedStatus == 'Paid') ...[
+                    SizedBox(height: 12),
+                    TextField(
+                      controller: amountCtl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Amount',
+                        errorText: validAmount ? null : 'Invalid number',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => setDialog(
+                          () => validAmount = int.tryParse(v.trim()) != null),
+                    ),
+                  ],
                   SizedBox(height: 12),
 
                   // Gender Dropdown
@@ -483,10 +543,12 @@ class _RegisterTabState extends State<RegisterTab> {
                   final name = nameCtl.text.trim();
                   final phone = phoneCtl.text.trim();
                   final tables = tableCtl.text.trim();
+                  final amount = amountCtl.text.trim();
 
                   if (name.isEmpty ||
                       !validPhone ||
-                      (_selectedGender == 'Tables' && !validTables)) return;
+                      (_selectedGender == 'Tables' && !validTables) ||
+                      (_selectedStatus == 'Paid' && !validAmount)) return;
 
                   final data = {
                     'name': name,
@@ -496,6 +558,9 @@ class _RegisterTabState extends State<RegisterTab> {
                     'event': _selectedEvent,
                     'tableCount': _selectedGender == 'Tables'
                         ? int.parse(tables)
+                        : FieldValue.delete(),
+                    'amount': _selectedStatus == 'Paid'
+                        ? int.parse(amount)
                         : FieldValue.delete(),
                   };
 
@@ -536,12 +601,16 @@ class _RegisterTabState extends State<RegisterTab> {
     final nameCtl = TextEditingController();
     final phoneCtl = TextEditingController();
     final tableCtl = TextEditingController();
+    final amountCtl = TextEditingController();
     bool validName = true;
 
     String status = 'Paid';
     String gender = 'Male';
     String? selectedEvent = widget.selectedEvent; // <-- NEW
-    bool validPhone = true, validTables = true, validEvent = true; // <-- NEW
+    bool validPhone = true,
+        validTables = true,
+        validEvent = true,
+        validAmount = true; // <-- NEW
 
     await showDialog(
       barrierDismissible: false,
@@ -620,6 +689,20 @@ class _RegisterTabState extends State<RegisterTab> {
                         .toList(),
                     onChanged: (val) => setDialog(() => status = val!),
                   ),
+                  if (status == 'Paid') ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: amountCtl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Amount',
+                        errorText: validAmount ? null : 'Invalid number',
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => setDialog(
+                          () => validAmount = int.tryParse(v.trim()) != null),
+                    ),
+                  ],
                   const SizedBox(height: 12),
 
                   // Gender / Pass Type Dropdown
@@ -670,6 +753,7 @@ class _RegisterTabState extends State<RegisterTab> {
                   final name = nameCtl.text.trim();
                   final phone = phoneCtl.text.trim();
                   final tables = tableCtl.text.trim();
+                  final amount = amountCtl.text.trim();
 
                   // Validate event selection
                   if (selectedEvent == null) {
@@ -679,13 +763,15 @@ class _RegisterTabState extends State<RegisterTab> {
 
                   if (name.isEmpty ||
                       !validPhone ||
-                      (gender == 'Tables' && !validTables)) return;
+                      (gender == 'Tables' && !validTables) ||
+                      (status == 'Paid' && !validAmount)) return;
 
                   final entry = {
                     'name': name.toUpperCase(),
                     'phone': phone,
                     'event': selectedEvent,
                     'status': status,
+                    if (status == 'Paid') 'amount': amount,
                     'gender': gender,
                     if (gender == 'Tables') 'tableCount': tables,
                     'timestamp': FieldValue.serverTimestamp(),
@@ -791,13 +877,87 @@ class _RegisterTabState extends State<RegisterTab> {
     }
   }
 
-// void _updateFilteredVisitorCount(List<QueryDocumentSnapshot> docs) {
-//   final filtered = docs
-//       .where((doc) =>
-//           _matchesFilters(doc.data() as Map<String, dynamic>))
-//       .toList();
-//   setState(() => _filteredVisitorCount = filtered.length);
-// }
+  Future<void> _onRefresh() async {
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _paymentFilter = 'All';
+      _passTypeFilter = 'All';
+      _enteredFilter = 'All';
+    });
+    await Future.delayed(Duration(milliseconds: 500));
+  }
+
+  void _showViewDialog(Map<String, dynamic> data) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          data['name'] ?? 'No Name',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Divider(),
+            _buildRichRow('Phone', data['phone']),
+            const SizedBox(height: 4),
+            _buildRichRow('Status', data['status']),
+            const SizedBox(height: 4),
+            if (data['amount'] != null) _buildRichRow('Amount', data['amount']),
+            const SizedBox(height: 4),
+            _buildRichRow(
+              'Entered',
+              data['isNotEntered'] == true ? 'No' : 'Yes',
+            ),
+            const SizedBox(height: 4),
+            _buildRichRow('Pass Type', data['gender']),
+            const SizedBox(height: 4),
+            if (data['tableCount'] != null)
+              _buildRichRow('No. of People', data['tableCount']),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRichRow(String label, dynamic value) {
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(color: Colors.black, fontSize: 14),
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          TextSpan(
+            text: value?.toString() ?? '',
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startScan() async {
+    final scannedDocId = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => QRScanPage()),
+    );
+
+    if (scannedDocId != null) {
+      _searchController.text = scannedDocId;
+      setState(() {
+        _searchQuery = scannedDocId;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -818,6 +978,7 @@ class _RegisterTabState extends State<RegisterTab> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       // 🔍 Search Field
+                      // 🔍 Search Field
                       SizedBox(
                         width: constraints.maxWidth < 600
                             ? constraints.maxWidth
@@ -832,6 +993,30 @@ class _RegisterTabState extends State<RegisterTab> {
                             ),
                             filled: true,
                             fillColor: Colors.white,
+
+                            // ✅ Clear & QR Icons
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // ❌ Clear Button (only shows when text is entered)
+                                if (_searchController.text.isNotEmpty)
+                                  IconButton(
+                                    icon: Icon(Icons.clear),
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() {
+                                        _searchQuery = '';
+                                      });
+                                    },
+                                    tooltip: 'Clear search',
+                                  ),
+                                IconButton(
+                                  icon: Icon(Icons.qr_code_scanner),
+                                  onPressed: _startScan,
+                                  tooltip: 'Scan QR Code',
+                                ),
+                              ],
+                            ),
                           ),
                           onChanged: (v) =>
                               setState(() => _searchQuery = v.trim()),
@@ -899,8 +1084,13 @@ class _RegisterTabState extends State<RegisterTab> {
                           return Center(child: CircularProgressIndicator());
 
                         final docs = snap.data!.docs
-                            .where((d) => _matchesFilters(
-                                d.data() as Map<String, dynamic>))
+                            .map((d) {
+                              final data = d.data() as Map<String, dynamic>;
+                              data['id'] =
+                                  d.id; // 👈 inject Firestore document ID
+                              return data;
+                            })
+                            .where(_matchesFilters)
                             .toList();
 
                         // ✅ FIXED: Post-frame setState to avoid build-time errors
@@ -943,90 +1133,113 @@ class _RegisterTabState extends State<RegisterTab> {
                               ),
                             ),
                             Expanded(
-                              child: docs.isEmpty
-                                  ? Center(
-                                      child: Text('No matching visitors found'))
-                                  : ListView.builder(
-                                      padding: EdgeInsets.only(bottom: 80),
-                                      itemCount: docs.length,
-                                      itemBuilder: (ctx, idx) {
-                                        final doc = docs[idx];
-                                        final data =
-                                            doc.data() as Map<String, dynamic>;
+                              child: RefreshIndicator(
+                                onRefresh: _onRefresh,
+                                child: docs.isEmpty
+                                    ? ListView(
+                                        physics:
+                                            AlwaysScrollableScrollPhysics(),
+                                        children: [
+                                          SizedBox(height: 200),
+                                          Center(
+                                              child: Text(
+                                                  'No matching visitors found')),
+                                        ],
+                                      )
+                                    : ListView.builder(
+                                        physics:
+                                            AlwaysScrollableScrollPhysics(),
+                                        padding: EdgeInsets.only(bottom: 80),
+                                        itemCount: docs.length,
+                                        itemBuilder: (ctx, idx) {
+                                          final data = docs[idx]; // No .data()
+                                          final docId = data[
+                                              'id']; // You already injected this
 
-                                        return Card(
-                                          elevation: 6,
-                                          color: Color.fromARGB(
-                                              255, 227, 225, 241),
-                                          margin:
-                                              EdgeInsets.symmetric(vertical: 6),
-                                          shape: RoundedRectangleBorder(
+                                          return Card(
+                                            elevation: 6,
+                                            color: Color.fromARGB(
+                                                255, 227, 225, 241),
+                                            margin: EdgeInsets.symmetric(
+                                                vertical: 6),
+                                            shape: RoundedRectangleBorder(
                                               borderRadius:
-                                                  BorderRadius.circular(12)),
-                                          child: ListTile(
-                                            contentPadding:
-                                                EdgeInsets.symmetric(
-                                                    horizontal: 12,
-                                                    vertical: 8),
-                                            leading: _isQrLoading
-                                                ? SizedBox(
-                                                    width: 24,
-                                                    height: 24,
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                            strokeWidth: 2),
-                                                  )
-                                                : IconButton(
-                                                    icon: Icon(
-                                                      Icons.qr_code,
-                                                      color: Colors.deepPurple,
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            child: ListTile(
+                                              contentPadding:
+                                                  EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 8),
+                                              leading: _isQrLoading
+                                                  ? SizedBox(
+                                                      width: 24,
+                                                      height: 24,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                              strokeWidth: 2),
+                                                    )
+                                                  : IconButton(
+                                                      icon: Icon(Icons.qr_code,
+                                                          color: Colors
+                                                              .deepPurple),
+                                                      onPressed: () =>
+                                                          _showQrDialog(docId),
                                                     ),
-                                                    onPressed: () =>
-                                                        _showQrDialog(doc.id),
-                                                  ),
-                                            title: Text(
-                                              data['name'] ?? 'No Name',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold),
-                                            ),
-                                            subtitle: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                    'Phone: ${data['phone'] ?? ''}'),
-                                                Text(
-                                                    'Status: ${data['status'] ?? ''}'),
-                                                Text(
-                                                    'Entered: ${data['isNotEntered'] == true ? 'No' : 'Yes'}'),
-                                                Text(
-                                                    'Pass Type: ${data['gender'] ?? ''}'),
-                                                if (data['tableCount'] != null)
+                                              title: Text(
+                                                data['name'] ?? 'No Name',
+                                                style: TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.bold),
+                                              ),
+                                              subtitle: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
                                                   Text(
-                                                      'No of People: ${data['tableCount']}'),
-                                              ],
+                                                      'Phone: ${data['phone'] ?? ''}'),
+                                                  Text(
+                                                      'Status: ${data['status'] ?? ''}'),
+                                                ],
+                                              ),
+                                              trailing: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  IconButton(
+                                                    icon: Icon(
+                                                        Icons.remove_red_eye,
+                                                        color:
+                                                            Colors.deepPurple),
+                                                    onPressed: () =>
+                                                        _showViewDialog(data),
+                                                  ),
+                                                  PopupMenuButton<String>(
+                                                    onSelected: (v) {
+                                                      if (v == 'edit')
+                                                        _showEditDialog(
+                                                            docId, data);
+                                                      else if (v == 'delete')
+                                                        _confirmAndDelete(
+                                                            docId);
+                                                    },
+                                                    itemBuilder: (ctx) => [
+                                                      PopupMenuItem(
+                                                          value: 'edit',
+                                                          child: Text('Edit')),
+                                                      PopupMenuItem(
+                                                          value: 'delete',
+                                                          child:
+                                                              Text('Delete')),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
                                             ),
-                                            trailing: PopupMenuButton<String>(
-                                              onSelected: (v) {
-                                                if (v == 'edit')
-                                                  _showEditDialog(doc.id, data);
-                                                else if (v == 'delete')
-                                                  _confirmAndDelete(doc.id);
-                                              },
-                                              itemBuilder: (ctx) => [
-                                                PopupMenuItem(
-                                                    value: 'edit',
-                                                    child: Text('Edit')),
-                                                PopupMenuItem(
-                                                    value: 'delete',
-                                                    child: Text('Delete')),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                            ),
+                                          );
+                                        },
+                                      ),
+                              ),
+                            )
                           ],
                         );
                       },

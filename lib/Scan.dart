@@ -15,8 +15,19 @@ class ScanTab extends StatefulWidget {
 class _ScanState extends State<ScanTab> {
   String scannedUserName = '';
   String scannedDocId = '';
+  String status = '';
+  int? amount = 0;
   bool? isNotEntered;
   bool isLoading = false;
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() {}); // Needed to show/hide clear button
+    });
+  }
+
+  final TextEditingController _searchController = TextEditingController();
 
   void _startScan() async {
     final scannedDocId = await Navigator.push(
@@ -25,63 +36,67 @@ class _ScanState extends State<ScanTab> {
     );
 
     if (scannedDocId != null) {
-      setState(() {
-        isLoading = true;
-        scannedUserName = '';
-        this.scannedDocId = scannedDocId;
-      });
+      _searchController.text = scannedDocId; // 👈 Show in search bar
+      _fetchUserByDocId(scannedDocId);
+    }
+  }
 
-      try {
-        final docSnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(scannedDocId)
-            .get();
+  Future<void> _fetchUserByDocId(String docId) async {
+    setState(() {
+      isLoading = true;
+      scannedUserName = '';
+      scannedDocId = docId;
+    });
 
-        if (docSnapshot.exists) {
-          final data = docSnapshot.data()!;
-          final userEvent = data['event'] ?? '';
+    try {
+      final docSnapshot =
+          await FirebaseFirestore.instance.collection('users').doc(docId).get();
 
-          if (userEvent != widget.selectedEvent) {
-            setState(() {
-              scannedUserName = 'User registered for a different event!';
-              isNotEntered = null;
-            });
+      if (docSnapshot.exists) {
+        final data = docSnapshot.data()!;
+        final userEvent = data['event'] ?? '';
 
-            // ScaffoldMessenger.of(context).showSnackBar(
-            //   SnackBar(
-            //     content: Text(
-            //         'This user is registered for "$userEvent", not for "${widget.selectedEvent}".'),
-            //   ),
-            // );
-            Fluttertoast.showToast(
-              msg:
-                  "This user is registered for '$userEvent', not for '${widget.selectedEvent}'",
-              backgroundColor: Colors.orange,
-              textColor: Colors.white,
-            );
-            return;
-          }
-
+        if (userEvent != widget.selectedEvent) {
           setState(() {
-            scannedUserName = data['name'] ?? 'Unknown';
-            isNotEntered = data['isNotEntered'] ?? true;
-          });
-        } else {
-          setState(() {
-            scannedUserName = 'User not found';
+            scannedUserName = 'User registered for a different event!';
             isNotEntered = null;
           });
+
+          Fluttertoast.showToast(
+            msg:
+                "This user is registered for '$userEvent', not for '${widget.selectedEvent}'",
+            backgroundColor: Colors.orange,
+            textColor: Colors.white,
+          );
+          return;
         }
-      } catch (e) {
+
         setState(() {
-          scannedUserName = 'Error loading user';
+          scannedUserName = data['name'] ?? 'Unknown';
+          isNotEntered = data['isNotEntered'] ?? true;
+          status = data['status'];
+          amount = data['amount'];
+        });
+      } else {
+        setState(() {
+          scannedUserName = 'User not found';
           isNotEntered = null;
         });
-      } finally {
-        setState(() {
-          isLoading = false;
-        });
       }
+    } catch (e) {
+      setState(() {
+        scannedUserName = 'Error loading user';
+        isNotEntered = null;
+      });
+      Fluttertoast.showToast(
+        msg: 'Error fetching user: ${e.toString()}',
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+      );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
     }
   }
 
@@ -96,7 +111,6 @@ class _ScanState extends State<ScanTab> {
           .doc(scannedDocId)
           .update({'isNotEntered': newValue});
     } catch (e) {
-      // If failed, revert the toggle
       setState(() {
         isNotEntered = !newValue;
       });
@@ -110,76 +124,188 @@ class _ScanState extends State<ScanTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Center(
-        child: isLoading
-            ? CircularProgressIndicator()
-            : scannedUserName.isEmpty
-                ? Text('Scan a QR to show visitor info')
-                : Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Card(
-                      color: isNotEntered == null
-                          ? Colors.white
-                          : (isNotEntered!
-                              ? Colors.red[100]
-                              : Colors.green[100]),
-                      elevation: 6,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.person,
-                                size: 50, color: Colors.deepPurple),
-                            SizedBox(height: 12),
-                            Text(
-                              'Visitor Name: $scannedUserName',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
+      body: Column(
+        children: [
+          // 🔍 Search Bar
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: TextField(
+              controller: _searchController,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (value) {
+                if (value.trim().isNotEmpty) {
+                  FocusScope.of(context).unfocus(); // hide keyboard
+                  _fetchUserByDocId(value.trim());
+                }
+              },
+              decoration: InputDecoration(
+                hintText: 'Enter Ticket ID and press Enter',
+                prefixIcon: Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            scannedUserName = '';
+                            scannedDocId = '';
+                            isNotEntered = null;
+                          });
+                        },
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+
+          // 🔄 Loading or Result
+          Expanded(
+            child: Center(
+              child: isLoading
+                  ? CircularProgressIndicator()
+                  : scannedUserName.isEmpty
+                      ? const Text('Scan a QR or Search to show visitor info')
+                      : Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Card(
+                            color: isNotEntered == null
+                                ? Colors.white
+                                : (isNotEntered!
+                                    ? Colors.red[100]
+                                    : Colors.green[100]),
+                            elevation: 6,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Ticket ID: $scannedDocId',
-                              style: TextStyle(
-                                  fontSize: 14, color: Colors.grey[600]),
-                            ),
-                            SizedBox(height: 16),
-                            if (isNotEntered != null)
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  Icon(Icons.person,
+                                      size: 50, color: Colors.deepPurple),
+                                  SizedBox(height: 12),
+
+                                  // Visitor Name (center-aligned by default)
                                   Text(
-                                    'Entered: ',
-                                    style: TextStyle(fontSize: 16),
-                                  ),
-                                  Switch(
-                                    value: !isNotEntered!,
-                                    onChanged: (val) =>
-                                        _toggleEntryStatus(!val),
-                                    activeColor: Colors.green,
-                                    inactiveThumbColor: Colors.red,
-                                    inactiveTrackColor: Colors.red[200],
-                                  ),
-                                  Text(
-                                    isNotEntered! ? 'No' : 'Yes',
+                                    'Visitor Name: $scannedUserName',
                                     style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: isNotEntered!
-                                            ? Colors.red
-                                            : Colors.green),
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
+
+                                  SizedBox(height: 12),
+
+                                  // Left-aligned details below
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      RichText(
+                                        text: TextSpan(
+                                          text: 'Ticket ID: ',
+                                          style: TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.black,
+                                              fontWeight: FontWeight.bold),
+                                          children: [
+                                            TextSpan(
+                                              text: scannedDocId,
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.normal,
+                                                  color: Colors.grey[600]),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      SizedBox(height: 8),
+                                      RichText(
+                                        text: TextSpan(
+                                          text: 'Status: ',
+                                          style: TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.black,
+                                              fontWeight: FontWeight.bold),
+                                          children: [
+                                            TextSpan(
+                                              text: status,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.normal,
+                                                color: status.toLowerCase() ==
+                                                        'paid'
+                                                    ? Colors.green
+                                                    : Colors.red,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      SizedBox(height: 8),
+                                      if (status == 'Paid')
+                                        RichText(
+                                          text: TextSpan(
+                                            text: 'Amount: ',
+                                            style: TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.black,
+                                                fontWeight: FontWeight.bold),
+                                            children: [
+                                              TextSpan(
+                                                text: '${amount}',
+                                                style: TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.normal,
+                                                    color: Colors.grey[600]),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+
+                                  SizedBox(height: 16),
+
+                                  if (isNotEntered != null && status == 'Paid')
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          'Entered: ',
+                                          style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold),
+                                        ),
+                                        Switch(
+                                          value: !isNotEntered!,
+                                          onChanged: (val) =>
+                                              _toggleEntryStatus(!val),
+                                          activeColor: Colors.green,
+                                          inactiveThumbColor: Colors.red,
+                                          inactiveTrackColor: Colors.red[200],
+                                        ),
+                                        Text(
+                                          isNotEntered! ? 'No' : 'Yes',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: isNotEntered!
+                                                  ? Colors.red
+                                                  : Colors.green),
+                                        ),
+                                      ],
+                                    ),
                                 ],
                               ),
-                          ],
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.black,
