@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
+import 'package:utkarsheventapp/LoginPage.dart';
 
 class CustomDrawer extends StatefulWidget {
   final String selectedEvent;
@@ -123,7 +125,34 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   ),
 
                   const Spacer(),
-
+                  InkWell(
+                    onTap: () async {
+                      var box = await Hive.openBox('userBox');
+                      await box.clear();
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LoginPage()),
+                        (route) => false,
+                      );
+                    },
+                    child: Row(
+                      children: const [
+                        Padding(
+                          padding: EdgeInsets.only(left: 16.0),
+                          child:
+                              Icon(Icons.logout, size: 30, color: Colors.black),
+                        ),
+                        SizedBox(width: 10),
+                        Text('Logout',
+                            style:
+                                TextStyle(fontSize: 14, color: Colors.black)),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 20,
+                  ),
+                  Divider(),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 20, left: 16),
                     child: RichText(

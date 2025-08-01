@@ -1,7 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
+import 'package:utkarsheventapp/LoginPage.dart';
 import 'package:utkarsheventapp/Register.dart';
 import 'package:utkarsheventapp/Scan.dart';
 import 'package:utkarsheventapp/custom_appbar.dart';
@@ -24,23 +30,75 @@ void main() async {
     );
   }
 
+  await Hive.initFlutter();
   await requestNotificationPermission();
   await initNotification();
-  runApp(MyApp());
+
+  await _checkAppVersion(); // 🔒 version check here
+
+  var box = await Hive.openBox('userBox');
+  final savedUsername = box.get('username');
+  final savedPassword = box.get('password');
+  final bool isLoggedIn = savedUsername != null && savedPassword != null;
+
+  runApp(MyApp(isLoggedIn ? const HomePage() : const LoginPage()));
+}
+
+/// 🔐 Version Check Function
+Future<void> _checkAppVersion() async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    final currentVersion = info.version;
+
+    final doc = await FirebaseFirestore.instance
+        .collection('app_config')
+        .doc('android')
+        .get();
+
+    final String minVersion = doc['min_version'] ?? '1.0.0';
+    final bool forceUpdate = doc['force_update'] ?? false;
+
+    if (forceUpdate && _isLowerVersion(currentVersion, minVersion)) {
+      if (!kDebugMode) {
+        exit(0); // 🚪 Close the app silently in release
+      } else {
+        debugPrint("🚫 Version too old: $currentVersion < $minVersion");
+      }
+    }
+  } catch (e) {
+    debugPrint("❌ Version check failed: $e");
+  }
+}
+
+/// 🔁 Version compare logic
+bool _isLowerVersion(String current, String min) {
+  List<int> currentParts =
+      current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+  List<int> minParts = min.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+  for (int i = 0; i < 3; i++) {
+    if (currentParts[i] < minParts[i]) return true;
+    if (currentParts[i] > minParts[i]) return false;
+  }
+  return false;
 }
 
 class MyApp extends StatelessWidget {
+  final Widget home;
+  const MyApp(this.home, {super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'User Registration App',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: HomePage(),
+      theme: ThemeData(primarySwatch: Colors.deepPurple),
+      home: home,
     );
   }
 }
 
 class HomePage extends StatefulWidget {
+  const HomePage({super.key});
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -81,51 +139,52 @@ class _HomePageState extends State<HomePage>
   @override
   void dispose() {
     _tabController?.dispose();
-    _eventSubscription.cancel(); // 🧹 Cleanup
+    _eventSubscription.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        endDrawer: CustomDrawer(
-          tabController: _tabController!,
-          selectedEvent: _selectedEvent,
-          onSelectionChanged: (city, event) {
-            setState(() => _selectedEvent = event);
-          },
-          events: listevents,
-        ),
-        appBar: CustomAppBar(
-          tabController: _tabController!,
-          isBackButtonShow: false,
-          title: "Influencer Lab Event",
-          subTitle: _selectedEvent,
-          isShowNotification: false,
-          isShowMenu: true,
-          icon: Icons.add,
-          isShowLogo: true,
-          isReturnValue: false,
-        ),
-        body: (_tabController == null)
-            ? const Center(child: CircularProgressIndicator())
-            : (listevents.isEmpty)
-                ? const Center(
-                    child: Text(
-                      'No Events Created.\nPlease add an event from the + icon.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
+      endDrawer: CustomDrawer(
+        tabController: _tabController!,
+        selectedEvent: _selectedEvent,
+        onSelectionChanged: (city, event) {
+          setState(() => _selectedEvent = event);
+        },
+        events: listevents,
+      ),
+      appBar: CustomAppBar(
+        tabController: _tabController!,
+        isBackButtonShow: false,
+        title: "Influencer Lab Event",
+        subTitle: _selectedEvent,
+        isShowNotification: false,
+        isShowMenu: true,
+        icon: Icons.add,
+        isShowLogo: true,
+        isReturnValue: false,
+      ),
+      body: (_tabController == null)
+          ? const Center(child: CircularProgressIndicator())
+          : (listevents.isEmpty)
+              ? const Center(
+                  child: Text(
+                    'No Events Created.\nPlease add an event from the + icon.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                )
+              : TabBarView(
+                  controller: _tabController!,
+                  children: [
+                    ScanTab(selectedEvent: _selectedEvent),
+                    RegisterTab(
+                      selectedEvent: _selectedEvent,
+                      events: listevents,
                     ),
-                  )
-                : TabBarView(
-                    controller: _tabController!,
-                    children: [
-                      ScanTab(selectedEvent: _selectedEvent),
-                      RegisterTab(
-                        selectedEvent: _selectedEvent,
-                        events: listevents,
-                      ),
-                    ],
-                  ));
+                  ],
+                ),
+    );
   }
 }

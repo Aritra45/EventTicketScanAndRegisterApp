@@ -223,61 +223,21 @@ class _ScanState extends State<ScanTab> {
                                   SizedBox(height: 12),
 
                                   // Left-aligned details below
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      RichText(
-                                        text: TextSpan(
-                                          text: 'Ticket ID: ',
-                                          style: TextStyle(
-                                              fontSize: 14,
-                                              color: Colors.black,
-                                              fontWeight: FontWeight.bold),
-                                          children: [
-                                            TextSpan(
-                                              text: scannedDocId,
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.normal,
-                                                  color: Colors.grey[600]),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      SizedBox(height: 8),
-                                      RichText(
-                                        text: TextSpan(
-                                          text: 'Status: ',
-                                          style: TextStyle(
-                                              fontSize: 14,
-                                              color: Colors.black,
-                                              fontWeight: FontWeight.bold),
-                                          children: [
-                                            TextSpan(
-                                              text: status,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.normal,
-                                                color: status.toLowerCase() ==
-                                                        'paid'
-                                                    ? Colors.green
-                                                    : Colors.red,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      SizedBox(height: 8),
-                                      if (status == 'Paid')
+                                  if (scannedUserName != 'User not found')
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
                                         RichText(
                                           text: TextSpan(
-                                            text: 'Amount: ',
+                                            text: 'Ticket ID: ',
                                             style: TextStyle(
                                                 fontSize: 14,
                                                 color: Colors.black,
                                                 fontWeight: FontWeight.bold),
                                             children: [
                                               TextSpan(
-                                                text: '${amount}',
+                                                text: scannedDocId,
                                                 style: TextStyle(
                                                     fontWeight:
                                                         FontWeight.normal,
@@ -286,8 +246,50 @@ class _ScanState extends State<ScanTab> {
                                             ],
                                           ),
                                         ),
-                                    ],
-                                  ),
+                                        SizedBox(height: 8),
+                                        RichText(
+                                          text: TextSpan(
+                                            text: 'Status: ',
+                                            style: TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.black,
+                                                fontWeight: FontWeight.bold),
+                                            children: [
+                                              TextSpan(
+                                                text: status,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.normal,
+                                                  color: status.toLowerCase() ==
+                                                          'paid'
+                                                      ? Colors.green
+                                                      : Colors.red,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        SizedBox(height: 8),
+                                        if (status == 'Paid')
+                                          RichText(
+                                            text: TextSpan(
+                                              text: 'Amount: ',
+                                              style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.black,
+                                                  fontWeight: FontWeight.bold),
+                                              children: [
+                                                TextSpan(
+                                                  text: '${amount}',
+                                                  style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.normal,
+                                                      color: Colors.grey[600]),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                      ],
+                                    ),
 
                                   SizedBox(height: 16),
 

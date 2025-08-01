@@ -415,10 +415,12 @@ class _RegisterTabState extends State<RegisterTab> {
         TextEditingController(text: userData['tableCount']?.toString() ?? '');
     final amountCtl =
         TextEditingController(text: userData['amount']?.toString() ?? '');
+
     String _selectedStatus = userData['status'];
     String _selectedGender = userData['gender'];
     String? _selectedEvent = userData['event'];
     bool validPhone = true, validTables = true, validAmount = true;
+    bool _isUpdating = false;
 
     await showDialog(
       context: context,
@@ -438,7 +440,6 @@ class _RegisterTabState extends State<RegisterTab> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Name
                   TextField(
                     controller: nameCtl,
                     decoration: InputDecoration(
@@ -447,8 +448,6 @@ class _RegisterTabState extends State<RegisterTab> {
                     ),
                   ),
                   SizedBox(height: 12),
-
-                  // Phone
                   TextField(
                     controller: phoneCtl,
                     keyboardType: TextInputType.phone,
@@ -461,8 +460,6 @@ class _RegisterTabState extends State<RegisterTab> {
                         validPhone = RegExp(r'^\d{10}$').hasMatch(v.trim())),
                   ),
                   SizedBox(height: 12),
-
-                  // Event dropdown
                   DropdownButtonFormField<String>(
                     value: _selectedEvent,
                     decoration: InputDecoration(
@@ -476,8 +473,6 @@ class _RegisterTabState extends State<RegisterTab> {
                     onChanged: (val) => setDialog(() => _selectedEvent = val),
                   ),
                   SizedBox(height: 12),
-
-                  // Status Dropdown
                   DropdownButtonFormField<String>(
                     value: _selectedStatus,
                     decoration: InputDecoration(
@@ -504,8 +499,6 @@ class _RegisterTabState extends State<RegisterTab> {
                     ),
                   ],
                   SizedBox(height: 12),
-
-                  // Gender Dropdown
                   DropdownButtonFormField<String>(
                     value: _selectedGender,
                     decoration: InputDecoration(
@@ -517,8 +510,6 @@ class _RegisterTabState extends State<RegisterTab> {
                         .toList(),
                     onChanged: (val) => setDialog(() => _selectedGender = val!),
                   ),
-
-                  // Table count if Tables selected
                   if (_selectedGender == 'Tables') ...[
                     SizedBox(height: 12),
                     TextField(
@@ -532,7 +523,7 @@ class _RegisterTabState extends State<RegisterTab> {
                       onChanged: (v) => setDialog(
                           () => validTables = int.tryParse(v.trim()) != null),
                     ),
-                  ]
+                  ],
                 ],
               ),
             ),
@@ -549,35 +540,47 @@ class _RegisterTabState extends State<RegisterTab> {
                   backgroundColor: Colors.deepPurple,
                   foregroundColor: Colors.white,
                 ),
-                onPressed: () async {
-                  final name = nameCtl.text.trim();
-                  final phone = phoneCtl.text.trim();
-                  final tables = tableCtl.text.trim();
-                  final amount = amountCtl.text.trim();
+                onPressed: _isUpdating
+                    ? null
+                    : () async {
+                        final name = nameCtl.text.trim();
+                        final phone = phoneCtl.text.trim();
+                        final tables = tableCtl.text.trim();
+                        final amount = amountCtl.text.trim();
 
-                  if (name.isEmpty ||
-                      !validPhone ||
-                      (_selectedGender == 'Tables' && !validTables) ||
-                      (_selectedStatus == 'Paid' && !validAmount)) return;
+                        if (name.isEmpty ||
+                            !validPhone ||
+                            (_selectedGender == 'Tables' && !validTables) ||
+                            (_selectedStatus == 'Paid' && !validAmount)) return;
 
-                  final data = {
-                    'name': name,
-                    'phone': phone,
-                    'status': _selectedStatus,
-                    'gender': _selectedGender,
-                    'event': _selectedEvent,
-                    'tableCount': _selectedGender == 'Tables'
-                        ? int.parse(tables)
-                        : FieldValue.delete(),
-                    'amount': _selectedStatus == 'Paid'
-                        ? int.parse(amount)
-                        : FieldValue.delete(),
-                  };
+                        setDialog(() => _isUpdating = true); // 🔄 Start loader
 
-                  await users.doc(docId).update(data);
-                  Navigator.pop(context);
-                },
-                child: Text('Update'),
+                        final data = {
+                          'name': name,
+                          'phone': phone,
+                          'status': _selectedStatus,
+                          'gender': _selectedGender,
+                          'event': _selectedEvent,
+                          'tableCount': _selectedGender == 'Tables'
+                              ? int.parse(tables)
+                              : FieldValue.delete(),
+                          'amount': _selectedStatus == 'Paid'
+                              ? int.parse(amount)
+                              : FieldValue.delete(),
+                        };
+
+                        await users.doc(docId).update(data);
+
+                        setDialog(() => _isUpdating = false); // ✅ Stop loader
+                        Navigator.pop(context);
+                      },
+                child: _isUpdating
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text('Update'),
               ),
             ],
           );
@@ -616,11 +619,12 @@ class _RegisterTabState extends State<RegisterTab> {
 
     String status = 'Paid';
     String gender = 'Male';
-    String? selectedEvent = widget.selectedEvent; // <-- NEW
+    String? selectedEvent = widget.selectedEvent;
     bool validPhone = true,
         validTables = true,
         validEvent = true,
-        validAmount = true; // <-- NEW
+        validAmount = true;
+    bool _isSubmitting = false;
 
     await showDialog(
       barrierDismissible: false,
@@ -640,7 +644,6 @@ class _RegisterTabState extends State<RegisterTab> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  /// Name Field
                   TextField(
                     controller: nameCtl,
                     decoration: InputDecoration(
@@ -653,8 +656,6 @@ class _RegisterTabState extends State<RegisterTab> {
                     },
                   ),
                   const SizedBox(height: 12),
-
-                  // Phone
                   TextField(
                     controller: phoneCtl,
                     keyboardType: TextInputType.phone,
@@ -667,8 +668,6 @@ class _RegisterTabState extends State<RegisterTab> {
                         validPhone = RegExp(r'^\d{10}$').hasMatch(v.trim())),
                   ),
                   const SizedBox(height: 12),
-
-                  // Event Dropdown (NEW)
                   DropdownButtonFormField<String>(
                     value: selectedEvent,
                     isExpanded: true,
@@ -686,8 +685,6 @@ class _RegisterTabState extends State<RegisterTab> {
                     }),
                   ),
                   const SizedBox(height: 12),
-
-                  // Payment Status Dropdown
                   DropdownButtonFormField<String>(
                     value: status,
                     decoration: const InputDecoration(
@@ -714,8 +711,6 @@ class _RegisterTabState extends State<RegisterTab> {
                     ),
                   ],
                   const SizedBox(height: 12),
-
-                  // Gender / Pass Type Dropdown
                   DropdownButtonFormField<String>(
                     value: gender,
                     decoration: const InputDecoration(
@@ -727,8 +722,6 @@ class _RegisterTabState extends State<RegisterTab> {
                         .toList(),
                     onChanged: (val) => setDialog(() => gender = val!),
                   ),
-
-                  // Table Count (if Tables selected)
                   if (gender == 'Tables') ...[
                     const SizedBox(height: 12),
                     TextField(
@@ -759,39 +752,51 @@ class _RegisterTabState extends State<RegisterTab> {
                   backgroundColor: Colors.deepPurple,
                   foregroundColor: Colors.white,
                 ),
-                onPressed: () async {
-                  final name = nameCtl.text.trim();
-                  final phone = phoneCtl.text.trim();
-                  final tables = tableCtl.text.trim();
-                  final amount = amountCtl.text.trim();
+                onPressed: _isSubmitting
+                    ? null
+                    : () async {
+                        final name = nameCtl.text.trim();
+                        final phone = phoneCtl.text.trim();
+                        final tables = tableCtl.text.trim();
+                        final amount = amountCtl.text.trim();
 
-                  // Validate event selection
-                  if (selectedEvent == null) {
-                    setDialog(() => validEvent = false);
-                    return;
-                  }
+                        if (selectedEvent == null) {
+                          setDialog(() => validEvent = false);
+                          return;
+                        }
 
-                  if (name.isEmpty ||
-                      !validPhone ||
-                      (gender == 'Tables' && !validTables) ||
-                      (status == 'Paid' && !validAmount)) return;
+                        if (name.isEmpty ||
+                            !validPhone ||
+                            (gender == 'Tables' && !validTables) ||
+                            (status == 'Paid' && !validAmount)) return;
 
-                  final entry = {
-                    'name': name.toUpperCase(),
-                    'phone': phone,
-                    'event': selectedEvent,
-                    'status': status,
-                    if (status == 'Paid') 'amount': amount,
-                    'gender': gender,
-                    if (gender == 'Tables') 'tableCount': tables,
-                    'timestamp': FieldValue.serverTimestamp(),
-                    'isNotEntered': true,
-                  };
+                        setDialog(
+                            () => _isSubmitting = true); // 🔄 Start loader
 
-                  await users.add(entry);
-                  Navigator.pop(context);
-                },
-                child: const Text('Submit'),
+                        final entry = {
+                          'name': name.toUpperCase(),
+                          'phone': phone,
+                          'event': selectedEvent,
+                          'status': status,
+                          if (status == 'Paid') 'amount': amount,
+                          'gender': gender,
+                          if (gender == 'Tables') 'tableCount': tables,
+                          'timestamp': FieldValue.serverTimestamp(),
+                          'isNotEntered': true,
+                        };
+
+                        await users.add(entry);
+
+                        setDialog(() => _isSubmitting = false); // ✅ Stop loader
+                        Navigator.pop(context);
+                      },
+                child: _isSubmitting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Submit'),
               ),
             ],
           );
@@ -890,6 +895,7 @@ class _RegisterTabState extends State<RegisterTab> {
   }
 
   Future<void> _fetchVisitorsFromFirestore() async {
+    if (!mounted) return; // prevent calling setState after dispose
     setState(() {
       isLoading = true;
     });
@@ -900,6 +906,7 @@ class _RegisterTabState extends State<RegisterTab> {
           .where('event', isEqualTo: widget.selectedEvent)
           .get();
 
+      if (!mounted) return;
       setState(() {
         docs = snapshot.docs.map((doc) {
           final data = doc.data();
@@ -914,6 +921,7 @@ class _RegisterTabState extends State<RegisterTab> {
         textColor: Colors.white,
       );
     } finally {
+      if (!mounted) return;
       setState(() {
         isLoading = false;
       });
