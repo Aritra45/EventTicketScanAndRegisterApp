@@ -41,11 +41,21 @@ class _RegisterTabState extends State<RegisterTab> {
       _enteredFilter = 'All';
   final _searchController = TextEditingController();
   int _filteredVisitorCount = 0;
-
+  List<Map<String, dynamic>> docs = [];
+  bool isLoading = true;
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() {});
+    });
+    _fetchVisitorsFromFirestore();
   }
 
   bool _matchesFilters(Map<String, dynamic> data) {
@@ -831,6 +841,7 @@ class _RegisterTabState extends State<RegisterTab> {
         TextCellValue('Name'),
         TextCellValue('Phone'),
         TextCellValue('Status'),
+        TextCellValue('Amount'),
         TextCellValue('Pass Type'),
         TextCellValue('Table Count'),
         TextCellValue('Event'),
@@ -843,6 +854,7 @@ class _RegisterTabState extends State<RegisterTab> {
           TextCellValue(data['name']?.toString() ?? '-'),
           TextCellValue(data['phone']?.toString() ?? '-'),
           TextCellValue(data['status']?.toString() ?? '-'),
+          TextCellValue(data['amount']?.toString() ?? '-'),
           TextCellValue(data['gender']?.toString() ?? '-'),
           TextCellValue(data['tableCount']?.toString() ?? '-'),
           TextCellValue(data['event']?.toString() ?? '-'),
@@ -877,6 +889,37 @@ class _RegisterTabState extends State<RegisterTab> {
     }
   }
 
+  Future<void> _fetchVisitorsFromFirestore() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('event', isEqualTo: widget.selectedEvent)
+          .get();
+
+      setState(() {
+        docs = snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id; // add document ID
+          return data;
+        }).toList();
+      });
+    } catch (e) {
+      Fluttertoast.showToast(
+        msg: 'Failed to load visitors: ${e.toString()}',
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+      );
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
   Future<void> _onRefresh() async {
     _searchController.clear();
     setState(() {
@@ -885,7 +928,8 @@ class _RegisterTabState extends State<RegisterTab> {
       _passTypeFilter = 'All';
       _enteredFilter = 'All';
     });
-    await Future.delayed(Duration(milliseconds: 500));
+
+    await _fetchVisitorsFromFirestore(); // Fetch fresh data
   }
 
   void _showViewDialog(Map<String, dynamic> data) {
@@ -952,11 +996,34 @@ class _RegisterTabState extends State<RegisterTab> {
     );
 
     if (scannedDocId != null) {
-      _searchController.text = scannedDocId;
-      setState(() {
-        _searchQuery = scannedDocId;
-      });
+      if (_isProbablyValidDocId(scannedDocId)) {
+        _searchController.text = scannedDocId;
+        setState(() {
+          _searchQuery = scannedDocId;
+        });
+        // Optionally trigger fetch here if needed:
+        // _fetchUserByDocId(scannedDocId);
+      } else {
+        Fluttertoast.showToast(
+          msg: "Invalid QR Code scanned. Please scan a valid ticket.",
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+        );
+      }
     }
+  }
+
+  bool _isProbablyValidDocId(String input) {
+    final trimmed = input.trim();
+
+    final isValidLength = trimmed.length >= 15 && trimmed.length <= 28;
+    final isAlphanumeric = RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(trimmed);
+    final isNotSuspicious = !(trimmed.startsWith('http') ||
+        trimmed.startsWith('upi:') ||
+        trimmed.contains('@') ||
+        trimmed.contains('gpay'));
+
+    return isValidLength && isAlphanumeric && isNotSuspicious;
   }
 
   @override
@@ -978,7 +1045,7 @@ class _RegisterTabState extends State<RegisterTab> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       // 🔍 Search Field
-                      // 🔍 Search Field
+
                       SizedBox(
                         width: constraints.maxWidth < 600
                             ? constraints.maxWidth
@@ -987,7 +1054,7 @@ class _RegisterTabState extends State<RegisterTab> {
                           controller: _searchController,
                           decoration: InputDecoration(
                             prefixIcon: Icon(Icons.search),
-                            hintText: 'Search by name, phone, or status',
+                            hintText: 'Search by name or phone',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -1133,112 +1200,136 @@ class _RegisterTabState extends State<RegisterTab> {
                               ),
                             ),
                             Expanded(
-                              child: RefreshIndicator(
-                                onRefresh: _onRefresh,
-                                child: docs.isEmpty
-                                    ? ListView(
-                                        physics:
-                                            AlwaysScrollableScrollPhysics(),
-                                        children: [
-                                          SizedBox(height: 200),
-                                          Center(
-                                              child: Text(
-                                                  'No matching visitors found')),
-                                        ],
-                                      )
-                                    : ListView.builder(
-                                        physics:
-                                            AlwaysScrollableScrollPhysics(),
-                                        padding: EdgeInsets.only(bottom: 80),
-                                        itemCount: docs.length,
-                                        itemBuilder: (ctx, idx) {
-                                          final data = docs[idx]; // No .data()
-                                          final docId = data[
-                                              'id']; // You already injected this
+                              child: isLoading
+                                  ? Center(child: CircularProgressIndicator())
+                                  : RefreshIndicator(
+                                      onRefresh: _onRefresh,
+                                      child: docs.isEmpty
+                                          ? ListView(
+                                              physics:
+                                                  AlwaysScrollableScrollPhysics(),
+                                              children: [
+                                                SizedBox(
+                                                    height:
+                                                        MediaQuery.of(context)
+                                                                .size
+                                                                .height /
+                                                            3),
+                                                Center(
+                                                  child: Text(
+                                                    'No matching visitors found',
+                                                    style: TextStyle(
+                                                        fontSize: 16,
+                                                        color: Colors.grey),
+                                                  ),
+                                                ),
+                                              ],
+                                            )
+                                          : ListView.builder(
+                                              physics:
+                                                  AlwaysScrollableScrollPhysics(),
+                                              padding:
+                                                  EdgeInsets.only(bottom: 80),
+                                              itemCount: docs.length,
+                                              itemBuilder: (ctx, idx) {
+                                                final data = docs[idx];
+                                                final docId = data['id'];
 
-                                          return Card(
-                                            elevation: 6,
-                                            color: Color.fromARGB(
-                                                255, 227, 225, 241),
-                                            margin: EdgeInsets.symmetric(
-                                                vertical: 6),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                            child: ListTile(
-                                              contentPadding:
-                                                  EdgeInsets.symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 8),
-                                              leading: _isQrLoading
-                                                  ? SizedBox(
-                                                      width: 24,
-                                                      height: 24,
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                              strokeWidth: 2),
-                                                    )
-                                                  : IconButton(
-                                                      icon: Icon(Icons.qr_code,
-                                                          color: Colors
-                                                              .deepPurple),
-                                                      onPressed: () =>
-                                                          _showQrDialog(docId),
+                                                return Card(
+                                                  elevation: 6,
+                                                  color: Color.fromARGB(
+                                                      255, 227, 225, 241),
+                                                  margin: EdgeInsets.symmetric(
+                                                      vertical: 6),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            12),
+                                                  ),
+                                                  child: ListTile(
+                                                    contentPadding:
+                                                        EdgeInsets.symmetric(
+                                                            horizontal: 12,
+                                                            vertical: 8),
+                                                    leading: _isQrLoading
+                                                        ? SizedBox(
+                                                            width: 24,
+                                                            height: 24,
+                                                            child:
+                                                                CircularProgressIndicator(
+                                                                    strokeWidth:
+                                                                        2),
+                                                          )
+                                                        : IconButton(
+                                                            icon: Icon(
+                                                                Icons.qr_code,
+                                                                color: Colors
+                                                                    .deepPurple),
+                                                            onPressed: () =>
+                                                                _showQrDialog(
+                                                                    docId),
+                                                          ),
+                                                    title: Text(
+                                                      data['name'] ?? 'No Name',
+                                                      style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold),
                                                     ),
-                                              title: Text(
-                                                data['name'] ?? 'No Name',
-                                                style: TextStyle(
-                                                    fontWeight:
-                                                        FontWeight.bold),
-                                              ),
-                                              subtitle: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                      'Phone: ${data['phone'] ?? ''}'),
-                                                  Text(
-                                                      'Status: ${data['status'] ?? ''}'),
-                                                ],
-                                              ),
-                                              trailing: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  IconButton(
-                                                    icon: Icon(
-                                                        Icons.remove_red_eye,
-                                                        color:
-                                                            Colors.deepPurple),
-                                                    onPressed: () =>
-                                                        _showViewDialog(data),
+                                                    subtitle: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Text(
+                                                            'Phone: ${data['phone'] ?? ''}'),
+                                                        Text(
+                                                            'Status: ${data['status'] ?? ''}'),
+                                                      ],
+                                                    ),
+                                                    trailing: Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        IconButton(
+                                                          icon: Icon(
+                                                              Icons
+                                                                  .remove_red_eye,
+                                                              color: Colors
+                                                                  .deepPurple),
+                                                          onPressed: () =>
+                                                              _showViewDialog(
+                                                                  data),
+                                                        ),
+                                                        PopupMenuButton<String>(
+                                                          onSelected: (v) {
+                                                            if (v == 'edit') {
+                                                              _showEditDialog(
+                                                                  docId, data);
+                                                            } else if (v ==
+                                                                'delete') {
+                                                              _confirmAndDelete(
+                                                                  docId);
+                                                            }
+                                                          },
+                                                          itemBuilder: (ctx) =>
+                                                              [
+                                                            PopupMenuItem(
+                                                                value: 'edit',
+                                                                child: Text(
+                                                                    'Edit')),
+                                                            PopupMenuItem(
+                                                                value: 'delete',
+                                                                child: Text(
+                                                                    'Delete')),
+                                                          ],
+                                                        ),
+                                                      ],
+                                                    ),
                                                   ),
-                                                  PopupMenuButton<String>(
-                                                    onSelected: (v) {
-                                                      if (v == 'edit')
-                                                        _showEditDialog(
-                                                            docId, data);
-                                                      else if (v == 'delete')
-                                                        _confirmAndDelete(
-                                                            docId);
-                                                    },
-                                                    itemBuilder: (ctx) => [
-                                                      PopupMenuItem(
-                                                          value: 'edit',
-                                                          child: Text('Edit')),
-                                                      PopupMenuItem(
-                                                          value: 'delete',
-                                                          child:
-                                                              Text('Delete')),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
+                                                );
+                                              },
                                             ),
-                                          );
-                                        },
-                                      ),
-                              ),
+                                    ),
                             )
                           ],
                         );

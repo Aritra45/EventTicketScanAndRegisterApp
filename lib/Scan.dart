@@ -36,9 +36,31 @@ class _ScanState extends State<ScanTab> {
     );
 
     if (scannedDocId != null) {
-      _searchController.text = scannedDocId; // 👈 Show in search bar
-      _fetchUserByDocId(scannedDocId);
+      // Optional: add validation here
+      if (_isProbablyValidDocId(scannedDocId)) {
+        _searchController.text = scannedDocId;
+        _fetchUserByDocId(scannedDocId);
+      } else {
+        Fluttertoast.showToast(
+          msg: "Invalid QR Code scanned. This doesn't look like a ticket.",
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+        );
+      }
     }
+  }
+
+  bool _isProbablyValidDocId(String input) {
+    final trimmed = input.trim();
+
+    // You can add your own logic here — maybe all ticket IDs are alphanumeric and 20 chars long?
+    final isValidLength = trimmed.length >= 15 && trimmed.length <= 28;
+    final isAlphanumeric = RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(trimmed);
+    final isNotUrlOrUpi = !(trimmed.startsWith('http') ||
+        trimmed.startsWith('upi:') ||
+        trimmed.contains('@'));
+
+    return isValidLength && isAlphanumeric && isNotUrlOrUpi;
   }
 
   Future<void> _fetchUserByDocId(String docId) async {
