@@ -16,7 +16,7 @@ class _ScanState extends State<ScanTab> {
   String scannedUserName = '';
   String scannedDocId = '';
   String status = '';
-  int? amount = 0;
+  String? amount = '';
   bool? isNotEntered;
   bool isLoading = false;
   @override

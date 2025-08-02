@@ -543,10 +543,10 @@ class _RegisterTabState extends State<RegisterTab> {
                 onPressed: _isUpdating
                     ? null
                     : () async {
-                        final name = nameCtl.text.trim();
-                        final phone = phoneCtl.text.trim();
-                        final tables = tableCtl.text.trim();
-                        final amount = amountCtl.text.trim();
+                        final String name = nameCtl.text.trim();
+                        final String phone = phoneCtl.text.trim();
+                        final String tables = tableCtl.text.trim();
+                        final String amount = amountCtl.text.trim();
 
                         if (name.isEmpty ||
                             !validPhone ||
@@ -756,9 +756,9 @@ class _RegisterTabState extends State<RegisterTab> {
                     ? null
                     : () async {
                         final name = nameCtl.text.trim();
-                        final phone = phoneCtl.text.trim();
-                        final tables = tableCtl.text.trim();
-                        final amount = amountCtl.text.trim();
+                        final String phone = phoneCtl.text.trim();
+                        final String tables = tableCtl.text.trim();
+                        final String amount = amountCtl.text.trim();
 
                         if (selectedEvent == null) {
                           setDialog(() => validEvent = false);
@@ -968,6 +968,27 @@ class _RegisterTabState extends State<RegisterTab> {
             const SizedBox(height: 4),
             if (data['tableCount'] != null)
               _buildRichRow('No. of People', data['tableCount']),
+            const SizedBox(height: 4),
+            if (data['transId'] != null)
+              _buildRichRow('Trans ID', data['transId']),
+            const SizedBox(height: 4),
+            if (data['imgUrl'] != null)
+              InkWell(
+                child: _buildRichRow('Proof', data['imgUrl']),
+                onTap: () async {
+                  final url = data['imgUrl'];
+                  if (url != null && await canLaunchUrl(Uri.parse(url))) {
+                    await launchUrl(
+                      Uri.parse(url),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not open the proof link.')),
+                    );
+                  }
+                },
+              ),
           ],
         ),
         actions: [
